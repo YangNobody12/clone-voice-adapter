@@ -1,0 +1,14 @@
+unsloth
+torch
+torchaudio
+snac
+transformers==4.56.2
+datasets>=3.4.1,<4.0.0
+trl==0.22.2
+gradio
+soundfile
+numpy
+scipy
+librosa
+speechbrain
+requests
