@@ -10,4 +10,4 @@ venv/
 *.zip
 wavs/
 output_history/
-PLAN.md
+./PLAN.md

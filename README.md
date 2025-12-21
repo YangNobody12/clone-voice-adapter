@@ -24,6 +24,8 @@ python app_gui.py
 
 ## การใช้งานบน Google Colab
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YangNobody12/clone-voice-adapter/blob/main/fine_tune_clone_voice.ipynb)
+
 เพียงแค่อัปโหลดไฟล์ `fine_tune_clone_voice.ipynb` ขึ้นไปบน Google Colab คุณก็สามารถรันโปรเจกต์นี้บน Cloud ได้ฟรี (โดยใช้ T4 GPU) สคริปต์ใน Notebook จะติดตั้งทุกอย่างและเปิด GUI ให้ใช้งานได้ทันที
 
 ## การใช้งานแบบขั้นสูง (Command Line)
