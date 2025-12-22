@@ -114,6 +114,12 @@ def sanitize_timestamps(chunks, audio_duration):
 
     for c in chunks:
         start, end = c["timestamp"]
+        
+        # Handle None values (Whisper can return None for end timestamp)
+        if start is None:
+            start = last_end
+        if end is None:
+            end = audio_duration
 
         if end <= start:
             end = start + 0.2
