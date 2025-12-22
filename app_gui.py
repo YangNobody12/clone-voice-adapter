@@ -16,7 +16,8 @@ from inference import InferenceEngine
 
 try:
     from speechbrain.inference.speaker import SpeakerRecognition
-except ImportError:
+except (ImportError, AttributeError, RuntimeError, Exception) as e:
+    print(f"SpeechBrain import failed (app_gui): {e}")
     SpeakerRecognition = None
 
 # Global helper for Tab 1

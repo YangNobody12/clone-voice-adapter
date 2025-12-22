@@ -1,6 +1,5 @@
 unsloth
 torch
-torchaudio
 snac
 transformers==4.56.2
 datasets>=3.4.1,<4.0.0
@@ -10,5 +9,8 @@ soundfile
 numpy
 scipy
 librosa
-speechbrain
+speechbrain>=1.0.0
 requests
+tyro
+msgspec
+torchao>=0.13.0

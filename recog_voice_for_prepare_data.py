@@ -14,7 +14,8 @@ from transformers import pipeline
 import requests
 try:
     from speechbrain.inference.speaker import SpeakerRecognition
-except ImportError:
+except (ImportError, AttributeError, RuntimeError, Exception) as e:
+    print(f"SpeechBrain import failed: {e}")
     SpeakerRecognition = None
 
 # ===============================
