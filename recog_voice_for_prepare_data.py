@@ -185,8 +185,16 @@ def cut_audio_by_timestamps(audio_path, chunks, temp_dir, prefix):
     out_dir = temp_dir / "wavs"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    audio_duration = total_samples / sr  # Get audio duration in seconds
+
     for i, c in enumerate(chunks, 1):
         start, end = c["timestamp"]
+        
+        # Handle None timestamps
+        if start is None:
+            continue  # Skip chunks with no start time
+        if end is None:
+            end = audio_duration
 
         s = int(start * sr)
         e = int(end * sr)
