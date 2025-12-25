@@ -270,6 +270,7 @@ with gr.Blocks(title="Clone Voice Adapter Studio", theme=gr.themes.Soft()) as de
             gr.Markdown("""
             ### Fine-tune LoRA Model
             หลังจากสร้าง Dataset แล้ว กดปุ่ม Train เพื่อ fine-tune model
+            loss ประมาณ 0.5 - 0.05 กำลังดี
             """)
             
             train_meta_path = gr.Textbox(
@@ -278,7 +279,7 @@ with gr.Blocks(title="Clone Voice Adapter Studio", theme=gr.themes.Soft()) as de
             )
             
             with gr.Row():
-                train_steps = gr.Number(label="Max Steps", value=60)
+                train_steps = gr.Number(label="Max Steps", value=300)
                 train_lr = gr.Number(label="Learning Rate", value=2e-4)
             
             train_btn = gr.Button("🚀 Start Training", variant="primary")

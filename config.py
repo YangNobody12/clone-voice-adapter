@@ -3,7 +3,7 @@ from typing import List, Optional
 
 @dataclass
 class ModelConfig:
-    model_name: str = "unsloth/orpheus-3b-0.1-ft"
+    model_name: str = "Pakorn2112/clone_voice_adapter"
     max_seq_length: int = 2048
     load_in_4bit: bool = False
     
