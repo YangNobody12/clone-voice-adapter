@@ -94,6 +94,9 @@ def prepare_dataset(csv_path, tokenizer, audio_tokenizer: AudioTokenizer):
     with open(csv_path, 'r', encoding='utf-8') as f:
         first_line = f.readline().strip()
     
+    print(f"[Dataset] First line: {first_line[:80]}...")
+    print(f"[Dataset] Contains '|': {'|' in first_line}, Contains ',': {',' in first_line}")
+    
     if '|' in first_line and ',' not in first_line:
         # LJSpeech format: path|text
         print("[Dataset] Detected LJSpeech format (path|text)")
@@ -110,6 +113,9 @@ def prepare_dataset(csv_path, tokenizer, audio_tokenizer: AudioTokenizer):
                             'source': 'speaker'
                         })
         df = pd.DataFrame(data)
+        print(f"[Dataset] Loaded {len(df)} rows from LJSpeech format")
+        print(f"[Dataset] Columns: {list(df.columns)}")
+        print(f"[Dataset] Sample: {df.head(1).to_dict()}")
     else:
         # CSV format with header
         print("[Dataset] Detected CSV format (audio,text,source)")

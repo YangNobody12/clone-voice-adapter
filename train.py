@@ -81,7 +81,6 @@ def train(metadata_path: str, overrides: dict = None):
     trainer = Trainer(
         model=model,
         train_dataset=dataset,
-        processing_class=tokenizer,
         args=training_args,
     )
 
