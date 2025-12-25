@@ -81,9 +81,7 @@ def train(metadata_path: str, overrides: dict = None):
     trainer = Trainer(
         model=model,
         train_dataset=dataset,
-        dataset_text_field="input_ids", # Technically not needed as we pre-formatted, but safe to add or ignore
-        max_seq_length=model_config.max_seq_length,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         args=training_args,
     )
 

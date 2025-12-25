@@ -77,7 +77,8 @@ def remove_duplicate_frames(example):
 
 def prepare_dataset(csv_path, tokenizer, audio_tokenizer: AudioTokenizer):
     """
-    Loads dataset from CSV (audio, text, source) and prepares it for training
+    Loads dataset from CSV (audio, text, source) or LJSpeech format (path|text) 
+    and prepares it for training
     """
     # Define tokens
     tokeniser_length = 128256
@@ -89,7 +90,33 @@ def prepare_dataset(csv_path, tokenizer, audio_tokenizer: AudioTokenizer):
     end_of_speech = tokeniser_length + 2
     end_of_text = 128009
 
-    df = pd.read_csv(csv_path)
+    # Detect format and load accordingly
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        first_line = f.readline().strip()
+    
+    if '|' in first_line and ',' not in first_line:
+        # LJSpeech format: path|text
+        print("[Dataset] Detected LJSpeech format (path|text)")
+        data = []
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and '|' in line:
+                    parts = line.split('|', 1)
+                    if len(parts) == 2:
+                        data.append({
+                            'audio': parts[0],
+                            'text': parts[1],
+                            'source': 'speaker'
+                        })
+        df = pd.DataFrame(data)
+    else:
+        # CSV format with header
+        print("[Dataset] Detected CSV format (audio,text,source)")
+        df = pd.read_csv(csv_path)
+        if 'source' not in df.columns:
+            df['source'] = 'speaker'
+    
     dataset = Dataset.from_pandas(df)
     
     # 1. Tokenise Audio
