@@ -14,3 +14,5 @@ requests
 tyro
 msgspec
 torchao>=0.13.0
+pydub
+pandas

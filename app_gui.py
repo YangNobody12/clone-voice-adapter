@@ -1,201 +1,331 @@
+"""
+Clone Voice Adapter Studio - Main GUI
+Pipeline: Record → Cut Audio → Typhoon STT → Prepare Data → Train → Inference
+"""
 import gradio as gr
 import os
+import tempfile
+import zipfile
+import shutil
 from pathlib import Path
+from datetime import datetime
 import threading
-from recog_voice_for_prepare_data import process_audio, verify_speaker
+
+# Local modules
+from audio_processor import process_audio_for_dataset, get_audio_duration
+from typhoon_stt import process_wavs_to_metadata, transcribe_all_segments, save_metadata_csv
 from train import train
 from inference import InferenceEngine
-# Import speechbrain for standalone recog tab if needed, 
-# but verify_speaker in recog_voice_for_prepare_data already wraps it.
-# We might need to expose the raw verification function better if verify_speaker 
-# is tightly coupled to chunks.
-# Let's check verify_speaker implementation in recog_voice_for_prepare_data.py again.
-# It takes chunks, ref_audio, main_audio... it's specific to the pipeline.
-# I will re-implement a simple pair verification here or refactor. 
-# Re-implementing is safer to avoid breaking the other script.
 
-try:
-    from speechbrain.inference.speaker import SpeakerRecognition
-except (ImportError, AttributeError, RuntimeError, Exception) as e:
-    print(f"SpeechBrain import failed (app_gui): {e}")
-    SpeakerRecognition = None
+# ===============================
+# HISTORY SYSTEM
+# ===============================
+HISTORY_DIR = Path(__file__).parent / "output_history"
+HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
-# Global helper for Tab 1
-def standalone_verify(file_a, file_b):
-    if not file_a or not file_b:
-        return "Please provide both audio files."
-    if SpeakerRecognition is None:
-        return "SpeechBrain not installed or model failed to load."
+
+# ===============================
+# TAB 1: RECORD & CREATE DATASET
+# ===============================
+def process_recording_pipeline(audio_path, typhoon_key, min_sec, max_sec, progress=gr.Progress()):
+    """
+    Full pipeline:
+    1. ตัด audio เป็น 11-15s segments, ลบเสียงเงียบ
+    2. ส่งแต่ละ segment ไป Typhoon STT
+    3. สร้าง metadata.csv (LJSpeech format)
+    4. สร้าง ZIP file
+    """
+    if not audio_path:
+        return "❌ กรุณาบันทึกหรืออัปโหลดเสียง", "", "", None
+    
+    if not typhoon_key:
+        return "❌ กรุณาใส่ Typhoon API Key", "", "", None
     
     try:
-        verification = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb", savedir="tmp_model")
-        score, prediction = verification.verify_files(file_a, file_b)
-        return f"Score: {score:.4f}\nPrediction: {'MATCH (Same Speaker)' if prediction else 'NO MATCH (Different Speaker)'}"
-    except Exception as e:
-        return f"Error: {e}"
-
-# Helper for Tab 3 (Train) running in background
-def run_training_thread(metadata_path, max_steps, learning_rate):
-    # We need to modify train.py to accept these args or patch the Config
-    # For now, we'll just run train(metadata_path) and maybe assume config.py is used
-    # But user wants UI to control it. 
-    # Let's import config and patch it before training
-    from config import TrainConfig
-    
-    # Update global config (hacky but works for single user local app)
-    # Better: Update train.py to accept a config object.
-    # For this iteration, let's keep it simple and just run `train` 
-    # assuming train.py reads from the file or we patch global config if possible.
-    # Actually, train.py instantiates TrainConfig() inside the function.
-    # We should update train.py to accept kwargs override.
-    
-    try:
-        # Running as subprocess might be cleaner to avoid memory leaks but less feedback.
-        # Let's call directly for improved feedback if possible.
-        # But wait, train() creates a Trainer.
+        audio_path = Path(audio_path)
+        basename = audio_path.stem
+        temp_dir = Path(tempfile.mkdtemp(prefix="voice_clone_"))
         
-        # We will modify train.py slightly in the next step to allow overrides.
-        train(metadata_path, overrides={"max_steps": int(max_steps), "learning_rate": float(learning_rate)})
-        return "Training Complete!"
+        # Step 1: Process audio (remove silence, cut segments)
+        progress(0.1, desc="กำลังตัดเสียง...")
+        print(f"[Pipeline] Step 1: Processing audio...")
+        segment_paths = process_audio_for_dataset(
+            str(audio_path), 
+            str(temp_dir),
+            min_sec=int(min_sec),
+            max_sec=int(max_sec)
+        )
+        
+        if not segment_paths:
+            return "❌ ไม่สามารถตัดเสียงได้", "", "", None
+        
+        # Calculate total duration
+        total_segments = len(segment_paths)
+        segments_info = f"ตัดได้ {total_segments} segments"
+        
+        # Step 2: Transcribe with Typhoon
+        progress(0.3, desc="กำลัง transcribe ด้วย Typhoon...")
+        print(f"[Pipeline] Step 2: Transcribing {total_segments} segments...")
+        
+        wavs_dir = temp_dir / "wavs"
+        
+        def update_progress(current, total, filename):
+            progress(0.3 + (0.5 * current / total), desc=f"Transcribing {filename}...")
+        
+        transcriptions = transcribe_all_segments(
+            str(wavs_dir), 
+            typhoon_key,
+            progress_callback=update_progress
+        )
+        
+        if not transcriptions:
+            return "❌ Typhoon ไม่สามารถ transcribe ได้ (ตรวจสอบ API Key)", segments_info, "", None
+        
+        # Step 3: Save metadata.csv (LJSpeech format)
+        progress(0.85, desc="กำลังสร้าง metadata...")
+        print(f"[Pipeline] Step 3: Saving metadata...")
+        
+        metadata_path = temp_dir / "metadata.csv"
+        save_metadata_csv(transcriptions, str(metadata_path), format_type="ljspeech")
+        
+        # Read metadata content for display
+        metadata_content = metadata_path.read_text(encoding="utf-8")
+        
+        # Step 4: Create ZIP
+        progress(0.95, desc="กำลังสร้าง ZIP...")
+        print(f"[Pipeline] Step 4: Creating ZIP...")
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_path = temp_dir / f"{basename}_dataset_{timestamp}.zip"
+        
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.write(metadata_path, "metadata.csv")
+            for wav_file in wavs_dir.glob("*.wav"):
+                zf.write(wav_file, f"wavs/{wav_file.name}")
+        
+        # Copy to history
+        history_zip = HISTORY_DIR / zip_path.name
+        shutil.copy(zip_path, history_zip)
+        
+        # Also save dataset folder for training
+        dataset_dir = Path(__file__).parent / "dataset"
+        if dataset_dir.exists():
+            shutil.rmtree(dataset_dir)
+        shutil.copytree(temp_dir, dataset_dir)
+        
+        progress(1.0, desc="เสร็จสิ้น!")
+        
+        # Create preview
+        preview_lines = []
+        for i, (filename, text) in enumerate(transcriptions[:10], 1):
+            preview_lines.append(f"[{i}] {text[:60]}...")
+        preview = "\n".join(preview_lines)
+        
+        status = f"✅ สำเร็จ! สร้าง {len(transcriptions)} segments\n📁 Dataset บันทึกที่: {dataset_dir}"
+        
+        return status, preview, metadata_content, str(zip_path)
+        
     except Exception as e:
-        return f"Training Failed: {e}"
+        import traceback
+        traceback.print_exc()
+        return f"❌ Error: {str(e)}", "", "", None
 
+
+# ===============================
+# TAB 2: TRAINING
+# ===============================
 def trigger_training(metadata_path, max_steps, learning_rate):
-    # Run in thread to not block UI
-    # Note: Gradio queueing might handle this, but explicit thread is safer for long tasks
-    # For simplicity in "no code" demo, we'll try to return a generator or just block if it's not too long? 
-    # Training is LONG.
-    # Let's just launch it and return "Started".
-    t = threading.Thread(target=run_training_thread, args=(metadata_path, max_steps, learning_rate))
-    t.start()
-    return "Training started... check console for progress (Gradio logs)."
+    """Start training in background thread"""
+    try:
+        if not os.path.exists(metadata_path):
+            return f"❌ ไม่พบไฟล์ {metadata_path}"
+        
+        def run_train():
+            train(metadata_path, overrides={
+                "max_steps": int(max_steps), 
+                "learning_rate": float(learning_rate)
+            })
+        
+        t = threading.Thread(target=run_train)
+        t.start()
+        
+        return "🚀 เริ่ม Training แล้ว! ดู progress ใน console..."
+        
+    except Exception as e:
+        return f"❌ Training Error: {str(e)}"
 
-# Helper for Tab 4 (Inference)
+
+# ===============================
+# TAB 3: INFERENCE
+# ===============================
 inference_engine = None
-def run_inference(text, model_path):
-    global inference_engine
-    if inference_engine is None:
-        if not os.path.exists(model_path):
-             return None, "Model path not found."
-        inference_engine = InferenceEngine(model_path=model_path)
-    
-    # Reload if model path changed? Complex. Let's assume one model for now or reload if path differs.
-    # Simplification: Just Create new engine if path differs.
-    
-    output_path = inference_engine.generate(text)
-    return output_path, "Audio Generated!"
 
-# --- GUI Layout ---
-with gr.Blocks(title="Clone Voice Adapter Studio") as demo:
-    gr.Markdown("# 🎙️ Clone Voice Adapter Studio")
-    gr.Markdown("A unified tool for Voice Cloning: Recognition, Preparation, Training, and Inference.")
+def run_inference(text, model_path):
+    """Generate audio from text"""
+    global inference_engine
+    
+    if not text.strip():
+        return None, "❌ กรุณาใส่ข้อความ"
+    
+    if not os.path.exists(model_path):
+        return None, f"❌ ไม่พบ model ที่ {model_path}"
+    
+    try:
+        if inference_engine is None or inference_engine.model_path != model_path:
+            print(f"[Inference] Loading model from {model_path}...")
+            inference_engine = InferenceEngine(model_path=model_path)
+        
+        output_path = inference_engine.generate(text)
+        return output_path, "✅ สร้างเสียงสำเร็จ!"
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return None, f"❌ Inference Error: {str(e)}"
+
+
+# ===============================
+# GRADIO UI
+# ===============================
+with gr.Blocks(title="Clone Voice Adapter Studio", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("""
+    # 🎙️ Clone Voice Adapter Studio
+    **Pipeline:** บันทึกเสียง → ตัด 11-15s → Typhoon STT → Train → Inference
+    """)
 
     with gr.Tabs():
-        # TAB 1: RECOG
-        # TAB 1: RECORD
-        with gr.Tab("1. Record for Training"):
-            gr.Markdown("### 🎙️ บันทึกเสียงสำหรับเทรน (Record Voice)")
-            gr.Markdown("อ่านบทความด้านล่างนี้ด้วยน้ำเสียงที่เป็นธรรมชาติ (ความยาวประมาณ 1 นาที) เพื่อใช้เป็นข้อมูลเบื้องต้นสำหรับโมเดล")
+        # =====================
+        # TAB 1: RECORD & PREPARE
+        # =====================
+        with gr.Tab("1. 🎤 บันทึก & สร้าง Dataset"):
+            gr.Markdown("""
+            ### ขั้นตอน
+            1. บันทึกเสียง **1-5 นาที** (อ่านบทด้านล่าง)
+            2. ใส่ **Typhoon API Key**
+            3. กด **สร้าง Dataset**
+            """)
             
-            thai_script = """
-            **บทอ่านทดสอบ (1 นาที):**
-            
-            "สวัสดีครับ/ค่ะ วันนี้เราจะมาทดสอบระบบสังเคราะห์เสียงภาษาไทยด้วยเทคโนโลยีปัญญาประดิษฐ์ 
-            การสร้างเสียงสังเคราะห์ที่มีความเป็นธรรมชาติ จำเป็นต้องอาศัยข้อมูลเสียงที่มีคุณภาพ 
-            และความชัดเจนในการออกเสียง ทั้งพยัญชนะ สระ และวรรณยุกต์ 
-            
-            ในปัจจุบัน เทคโนโลยี AI ได้เข้ามามีบทบาทสำคัญในชีวิตประจำวันของเรามากขึ้น 
-            ไม่ว่าจะเป็นผู้ช่วยเสมือนจริง การแปลภาษาอัตโนมัติ หรือแม้แต่การอ่านข่าว 
-            การที่เราสามารถโคลนเสียงของตนเองได้ จะช่วยเปิดโอกาสในการสร้างสรรค์คอนเทนต์รูปแบบใหม่ๆ 
-            โดยไม่ต้องเสียเวลาบันทึกเสียงซ้ำหลายรอบ 
-            
-            ขอให้ท่านอ่านข้อความนี้ด้วยระดับเสียงปกติ ไม่เร็วและไม่ช้าจนเกินไป 
-            เพื่อให้ระบบสามารถจับลักษณะเฉพาะของเนื้อเสียงและจังหวะการพูดของท่านได้อย่างแม่นยำที่สุด 
-            ขอบคุณที่ร่วมเป็นส่วนหนึ่งในการพัฒนาเทคโนโลยีนี้ครับ/ค่ะ"
-            """
-            
-            gr.Markdown(thai_script)
-            
-            with gr.Row():
-                recog_audio_in = gr.Audio(sources=["microphone", "upload"], type="filepath", label="🔴 กดปุ่มเพื่อบันทึกเสียง (Record)")
-                recog_typhoon_key = gr.Textbox(label="Typhoon API Key (Optional for text correction)", type="password")
-            
-            with gr.Row():
-                recog_max_chars = gr.Slider(30, 200, 80, label="Max Chars / Chunk")
-            
-            recog_process_btn = gr.Button("💾 Process & Create Dataset (สร้าง Dataset)")
-            
-            with gr.Row():
-                recog_text = gr.Textbox(label="Full Transcript", lines=5)
-                recog_chunks = gr.Textbox(label="Chunks Preview", lines=5)
-            
-            with gr.Row():
-                recog_metadata = gr.Textbox(label="Metadata (CSV)", lines=5)
-                recog_zip = gr.File(label="Download ZIP")
+            # Reading script
+            with gr.Accordion("📖 บทอ่านสำหรับบันทึก (กดเพื่อดู)", open=False):
+                gr.Markdown("""
+                **บทอ่านทดสอบ (อ่านช้าๆ ชัดๆ ประมาณ 2-3 นาที):**
+                
+                ---
+                
+                "สวัสดีครับ วันนี้เราจะมาทดสอบระบบสังเคราะห์เสียงภาษาไทย
+                ด้วยเทคโนโลยีปัญญาประดิษฐ์ การสร้างเสียงสังเคราะห์ที่มีความเป็นธรรมชาติ
+                จำเป็นต้องอาศัยข้อมูลเสียงที่มีคุณภาพและความชัดเจนในการออกเสียง
 
-            # Wrapper to pass None for ref_audio
-            def process_recording_wrapper(audio, max_chars, api_key):
-                return process_audio(audio, max_chars, ref_audio_path=None, typhoon_key=api_key)
+                ในปัจจุบัน เทคโนโลยี AI ได้เข้ามามีบทบาทสำคัญในชีวิตประจำวัน
+                ไม่ว่าจะเป็นผู้ช่วยเสมือนจริง การแปลภาษาอัตโนมัติ หรือการอ่านข่าว
+                การที่เราสามารถโคลนเสียงของตนเองได้นั้น จะช่วยเปิดโอกาสใหม่ๆ มากมาย
 
-            recog_process_btn.click(
-                process_recording_wrapper, 
-                inputs=[recog_audio_in, recog_max_chars, recog_typhoon_key], 
-                outputs=[recog_text, recog_chunks, recog_metadata, recog_zip]
+                ระบบนี้ใช้โมเดล Orpheus ซึ่งเป็นโมเดล text-to-speech ที่ทันสมัย
+                ผมกำลังทดสอบการพูดในระดับเสียงปกติ ไม่เร็วและไม่ช้าจนเกินไป
+                เพื่อให้ระบบสามารถเรียนรู้ลักษณะเฉพาะของเสียงได้อย่างถูกต้อง
+
+                ขอบคุณที่ร่วมทดสอบระบบครับ"
+                
+                ---
+                """)
+            
+            with gr.Row():
+                with gr.Column(scale=2):
+                    rec_audio = gr.Audio(
+                        sources=["microphone", "upload"], 
+                        type="filepath", 
+                        label="🔴 บันทึกเสียง หรือ อัปโหลดไฟล์"
+                    )
+                with gr.Column(scale=1):
+                    rec_api_key = gr.Textbox(
+                        label="🔑 Typhoon API Key", 
+                        type="password",
+                        placeholder="sk-..."
+                    )
+            
+            with gr.Row():
+                rec_min_sec = gr.Slider(8, 15, value=11, step=1, label="Min Segment (วินาที)")
+                rec_max_sec = gr.Slider(12, 20, value=15, step=1, label="Max Segment (วินาที)")
+            
+            rec_process_btn = gr.Button("🚀 สร้าง Dataset", variant="primary", size="lg")
+            
+            with gr.Row():
+                rec_status = gr.Textbox(label="สถานะ", lines=3)
+                rec_preview = gr.Textbox(label="Preview Transcriptions", lines=5)
+            
+            with gr.Row():
+                rec_metadata = gr.Textbox(label="metadata.csv", lines=5)
+                rec_zip = gr.File(label="📦 Download Dataset ZIP")
+            
+            rec_process_btn.click(
+                process_recording_pipeline,
+                inputs=[rec_audio, rec_api_key, rec_min_sec, rec_max_sec],
+                outputs=[rec_status, rec_preview, rec_metadata, rec_zip]
             )
 
-
-        # TAB 2: PREPARE
-        with gr.Tab("2. Prepare"):
-            gr.Markdown("### Dataset Builder")
-            # Reusing arguments from recog_voice_for_prepare_data logic
-            with gr.Row():
-                prep_audio_in = gr.Audio(type="filepath", label="Main Audio File")
-                prep_ref_audio = gr.Audio(type="filepath", label="Reference Audio (Filter Speaker)")
+        # =====================
+        # TAB 2: TRAIN
+        # =====================
+        with gr.Tab("2. 🏋️ Train Model"):
+            gr.Markdown("""
+            ### Fine-tune LoRA Model
+            หลังจากสร้าง Dataset แล้ว กดปุ่ม Train เพื่อ fine-tune model
+            """)
             
-            with gr.Row():
-                prep_typhoon_key = gr.Textbox(label="Typhoon API Key (Optional)", type="password")
-                prep_max_chars = gr.Slider(30, 200, 80, label="Max Chars / Chunk")
-            
-            prep_btn = gr.Button("Process & Create Dataset")
-            
-            with gr.Row():
-                prep_text = gr.Textbox(label="Full Transcript", lines=5)
-                prep_chunks = gr.Textbox(label="Chunks Preview", lines=5)
-            
-            with gr.Row():
-                prep_metadata = gr.Textbox(label="Metadata (CSV)", lines=5)
-                prep_zip = gr.File(label="Download ZIP")
-
-            prep_btn.click(
-                process_audio, 
-                inputs=[prep_audio_in, prep_max_chars, prep_ref_audio, prep_typhoon_key],
-                outputs=[prep_text, prep_chunks, prep_metadata, prep_zip]
+            train_meta_path = gr.Textbox(
+                label="📁 Path to metadata.csv", 
+                value="dataset/metadata.csv"
             )
-
-        # TAB 3: TRAIN
-        with gr.Tab("3. Train"):
-            gr.Markdown("### Model Fine-tuning")
-            train_meta_path = gr.Textbox(label="Path to metadata.csv", value="dataset/metadata.csv")
+            
             with gr.Row():
                 train_steps = gr.Number(label="Max Steps", value=60)
                 train_lr = gr.Number(label="Learning Rate", value=2e-4)
             
-            train_btn = gr.Button("Start Training")
-            train_status = gr.Textbox(label="Status")
+            train_btn = gr.Button("🚀 Start Training", variant="primary")
+            train_status = gr.Textbox(label="Training Status", lines=3)
             
-            train_btn.click(trigger_training, inputs=[train_meta_path, train_steps, train_lr], outputs=train_status)
+            train_btn.click(
+                trigger_training, 
+                inputs=[train_meta_path, train_steps, train_lr], 
+                outputs=train_status
+            )
+            
+            gr.Markdown("""
+            > ⚠️ **หมายเหตุ:** Training อาจใช้เวลา 10-30 นาที ขึ้นอยู่กับจำนวน steps และ GPU
+            > ดู progress ได้ใน terminal/console
+            """)
 
-        # TAB 4: INFERENCE
-        with gr.Tab("4. Inference"):
-            gr.Markdown("### Text-to-Speech")
-            inf_model_path = gr.Textbox(label="Model Path", value="outputs/checkpoint-60")
-            inf_text = gr.Textbox(label="Text to Speak", lines=2)
-            inf_btn = gr.Button("Generate")
+        # =====================
+        # TAB 3: INFERENCE
+        # =====================
+        with gr.Tab("3. 🔊 Inference"):
+            gr.Markdown("""
+            ### สร้างเสียงจาก Text
+            ใส่ข้อความที่ต้องการให้โมเดลพูด
+            """)
             
-            inf_audio = gr.Audio(label="Output Audio")
-            inf_status = gr.Textbox(label="Status")
+            inf_model_path = gr.Textbox(
+                label="📁 Model Path", 
+                value="outputs/checkpoint-60"
+            )
+            inf_text = gr.Textbox(
+                label="📝 ข้อความที่ต้องการพูด", 
+                lines=3,
+                placeholder="สวัสดีครับ นี่คือเสียงที่สร้างจาก AI..."
+            )
             
-            inf_btn.click(run_inference, inputs=[inf_text, inf_model_path], outputs=[inf_audio, inf_status])
+            inf_btn = gr.Button("🎵 Generate Audio", variant="primary")
+            
+            with gr.Row():
+                inf_audio = gr.Audio(label="🔊 Generated Audio")
+                inf_status = gr.Textbox(label="Status")
+            
+            inf_btn.click(
+                run_inference, 
+                inputs=[inf_text, inf_model_path], 
+                outputs=[inf_audio, inf_status]
+            )
+
 
 if __name__ == "__main__":
     demo.launch(share=True)
