@@ -3,7 +3,7 @@ import torch
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "Pakorn2112/clone_voice_adapter",
+    model_name = "Pakorn2112/voice-clone-orpheus-base",
     max_seq_length= 2048, # Choose any for long context!
     dtype = None, # Select None for auto detection
     load_in_4bit = False, # Select True for 4bit which reduces memory usage
@@ -12,10 +12,10 @@ model, tokenizer = FastLanguageModel.from_pretrained(
 
 model = FastLanguageModel.get_peft_model(
     model,
-    r = 64, # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+    r = 128, # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
                       "gate_proj", "up_proj", "down_proj",],
-    lora_alpha = 64,
+    lora_alpha = 128,
     lora_dropout = 0.05, # Supports any, but = 0 is optimized
     bias = "none",    # Supports any, but = "none" is optimized
     # [NEW] "unsloth" uses 30% less VRAM, fits 2x larger batch sizes!
