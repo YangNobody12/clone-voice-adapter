@@ -25,7 +25,7 @@ class TrainConfig:
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 4
     warmup_steps: int = 5
-    max_steps: int = 60
+    max_steps: int = 360
     learning_rate: float = 2e-4
     optim: str = "adamw_8bit"
     weight_decay: float = 0.001
