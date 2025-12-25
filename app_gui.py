@@ -307,7 +307,7 @@ with gr.Blocks(title="Clone Voice Adapter Studio", theme=gr.themes.Soft()) as de
             
             inf_model_path = gr.Textbox(
                 label="📁 Model Path", 
-                value="outputs/checkpoint-60"
+                value="outputs/lora_model"
             )
             inf_text = gr.Textbox(
                 label="📝 ข้อความที่ต้องการพูด", 

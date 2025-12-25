@@ -90,8 +90,8 @@ def train(metadata_path: str, overrides: dict = None):
     
     # 7. Save Model
     print(f"Saving model to {train_config.output_dir}...")
-    model.save_pretrained(train_config.output_dir)
-    tokenizer.save_pretrained(train_config.output_dir)
+    model.save_pretrained(train_config.output_dir+"lora_model")
+    tokenizer.save_pretrained(train_config.output_dir+"lora_model")
     
     return f"Training complete. Model saved to {train_config.output_dir}"
 

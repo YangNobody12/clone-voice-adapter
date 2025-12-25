@@ -4,13 +4,34 @@ from snac import SNAC
 import soundfile as sf
 import os
 import numpy as np
+import gc
+
+def cleanup_memory():
+    """
+    Clean up memory before inference.
+    Call this after training to free GPU memory.
+    """
+    # Try to delete common training variables if they exist in global scope
+    for var_name in ['model', 'optimizer', 'data', 'trainer', 'dataset']:
+        if var_name in globals():
+            del globals()[var_name]
+    
+    # Run garbage collection
+    gc.collect()
+    
+    # Clear CUDA cache
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    
+    print("Memory cleaned up successfully!")
 
 class InferenceEngine:
     def __init__(self, model_path, device="cuda"):
         self.device = device
         self.model_path = model_path
         print(f"Loading model from {model_path}...")
-        
+
         # Load LLM
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_path,
@@ -46,6 +67,8 @@ class InferenceEngine:
         """
         print(f"Generating audio for: '{text}'")
         
+        text = f"1: {text}"
+
         # 1. Prepare Input
         input_ids = self.tokenizer(text, return_tensors="pt").input_ids
         

@@ -110,7 +110,7 @@ def prepare_dataset(csv_path, tokenizer, audio_tokenizer: AudioTokenizer):
                         data.append({
                             'audio': parts[0],
                             'text': parts[1],
-                            'source': 'speaker'
+                            'source': 1
                         })
         df = pd.DataFrame(data)
         print(f"[Dataset] Loaded {len(df)} rows from LJSpeech format")
