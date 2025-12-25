@@ -208,7 +208,17 @@ def cut_audio_by_timestamps(audio_path, chunks, temp_dir, prefix):
         out_path = out_dir / out_name
         sf.write(out_path, seg, sr)
 
-        outputs.append((out_path, c["text"]))
+        # Re-transcribe each segment individually to get accurate text
+        segment_result = asr_pipe(
+            {"array": seg, "sampling_rate": sr},
+            return_timestamps=False,
+            generate_kwargs={"task": "transcribe", "language": "th"}
+        )
+        segment_text = segment_result["text"].strip()
+        
+        # Use re-transcribed text, fallback to original if empty
+        final_text = segment_text if segment_text else c["text"]
+        outputs.append((out_path, final_text))
 
     return outputs, out_dir
 
