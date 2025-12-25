@@ -1,15 +1,23 @@
 """
 Typhoon Speech-to-Text Module
-ใช้ Typhoon API (OpenAI-compatible) สำหรับ transcribe audio เป็นภาษาไทย
+ใช้ Typhoon API (OpenAI SDK) สำหรับ transcribe audio เป็นภาษาไทย
 """
 import os
-import requests
 from pathlib import Path
 from typing import List, Tuple, Optional
+from openai import OpenAI
 
 
-TYPHOON_ASR_ENDPOINT = "https://api.opentyphoon.ai/v1/audio/transcriptions"
-TYPHOON_MODEL = "typhoon-v1-th"
+TYPHOON_BASE_URL = "https://api.opentyphoon.ai/v1"
+TYPHOON_MODEL = "typhoon-asr-realtime"
+
+
+def get_client(api_key: str) -> OpenAI:
+    """Create OpenAI client for Typhoon API"""
+    return OpenAI(
+        api_key=api_key,
+        base_url=TYPHOON_BASE_URL
+    )
 
 
 def transcribe_audio(audio_path: str, api_key: str, model: str = TYPHOON_MODEL) -> str:
@@ -19,7 +27,7 @@ def transcribe_audio(audio_path: str, api_key: str, model: str = TYPHOON_MODEL) 
     Args:
         audio_path: path to audio file (WAV, MP3, etc.)
         api_key: Typhoon API key
-        model: model name (default: typhoon-v1-th)
+        model: model name (default: typhoon-asr-realtime)
     
     Returns:
         transcribed text
@@ -31,35 +39,20 @@ def transcribe_audio(audio_path: str, api_key: str, model: str = TYPHOON_MODEL) 
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
     
-    headers = {
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    with open(audio_path, "rb") as audio_file:
-        files = {
-            "file": (audio_path.name, audio_file, "audio/wav")
-        }
-        data = {
-            "model": model,
-            "language": "th"
-        }
+    try:
+        client = get_client(api_key)
         
-        try:
-            response = requests.post(
-                TYPHOON_ASR_ENDPOINT,
-                headers=headers,
-                files=files,
-                data=data,
-                timeout=60
+        with open(audio_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                file=audio_file,
+                model=model
             )
-            response.raise_for_status()
             
-            result = response.json()
-            return result.get("text", "").strip()
-            
-        except requests.exceptions.RequestException as e:
-            print(f"[Typhoon] API Error for {audio_path.name}: {e}")
-            return ""
+        return transcription.text.strip() if transcription.text else ""
+        
+    except Exception as e:
+        print(f"[Typhoon] API Error for {audio_path.name}: {e}")
+        return ""
 
 
 def transcribe_all_segments(
