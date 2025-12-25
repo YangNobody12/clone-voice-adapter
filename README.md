@@ -1,48 +1,142 @@
-# Clone Voice Adapter
+# 🎙️ Clone Voice Adapter
 
-Repository นี้รวบรวมเครื่องมือสำหรับ Fine-tune โมเดล Orpheus-3B (โมเดลสร้างเสียงด้วย SNAC) ให้เป็นเสียงของคุณเอง
-
-## การติดตั้ง (Installation)
-
-```bash
-pip install -r requirements.txt
-```
-
-## การใช้งาน (Unified GUI) - แนะนำ!
-
-วิธีที่ง่ายที่สุดคือใช้ Interface แบบ "No-Code" ที่รวมทุกขั้นตอนไว้ในที่เดียว
-
-```bash
-python app_gui.py
-```
-
-เมื่อรันคำสั่งนี้ โปรแกรมจะเปิดหน้าเว็บที่มี 4 แท็บให้ใช้งาน:
-1. **Recog (Verify)**: เครื่องมือสำหรับตรวจสอบความเหมือนของเสียง (Speaker Similarity) เพื่อเช็คว่าเสียงอ้างอิงตรงกับเป้าหมายหรือไม่
-2. **Prepare**: เอาไว้สร้าง Dataset (รองรับ ASR ถอดความเสียง, ใช้ Typhoon API แก้คำผิดภาษาไทย, และกรองเสียงพูดที่ไม่ใช่เป้าหมายออก)
-3. **Train**: สำหรับสั่ง Fine-tune โมเดลด้วย Dataset ที่เตรียมไว้
-4. **Inference**: เครื่องมือสร้างเสียงจากข้อความ (Text-to-Speech) หลังเทรนเสร็จ
-
-## การใช้งานบน Google Colab
+<div align="center">
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YangNobody12/clone-voice-adapter/blob/main/fine_tune_clone_voice.ipynb)
 
-เพียงแค่อัปโหลดไฟล์ `fine_tune_clone_voice.ipynb` ขึ้นไปบน Google Colab คุณก็สามารถรันโปรเจกต์นี้บน Cloud ได้ฟรี (โดยใช้ T4 GPU) สคริปต์ใน Notebook จะติดตั้งทุกอย่างและเปิด GUI ให้ใช้งานได้ทันที
+**Fine-tune TTS โมเดลให้เป็นเสียงของคุณเอง ด้วย LoRA + Unsloth**
 
-## การใช้งานแบบขั้นสูง (Command Line)
+</div>
 
-หากคุณถนัดใช้ Command Line สามารถเรียกใช้สคริปต์แยกตามฟังก์ชั่นได้ดังนี้:
+---
 
-### 1. เตรียม Dataset (Prepare)
-```bash
-python recog_voice_for_prepare_data.py
+## ✨ Features
+
+- 🎤 **บันทึกเสียง** → ตัดอัตโนมัติเป็น 11-15 วินาที ลบเสียงเงียบ
+- 🗣️ **Typhoon ASR** → Speech-to-Text ภาษาไทยด้วย API
+- 📊 **สร้าง Dataset** → Format LJSpeech อัตโนมัติ
+- 🏋️ **Train LoRA** → Fine-tune ด้วย Unsloth บน T4 GPU ฟรี
+- 🔊 **Inference** → สร้างเสียงจาก Text ด้วยโมเดลที่เทรน
+
+---
+
+## 🚀 Quick Start
+
+### Google Colab (แนะนำ!)
+```
+กดปุ่ม "Open in Colab" ด้านบน → Run all cells
 ```
 
-### 2. เทรนโมเดล (Training)
+### Local
 ```bash
-python train.py --metadata path/to/dataset/metadata.csv
+pip install -r requirements.txt
+python app_gui.py
 ```
 
-### 3. สร้างเสียง (Inference)
-```bash
-python inference.py --text "สวัสดีครับ ผมชื่อสมชาย" --model_path outputs/checkpoint-60
+> ⚠️ **ต้องการ:** Python 3.10+, CUDA GPU, FFmpeg
+
+---
+
+## 📋 Pipeline
+
 ```
+1. บันทึกเสียง (1-5 นาที)
+      ↓
+2. ตัดเป็น segments 11-15s + ลบเสียงเงียบ
+      ↓
+3. Typhoon STT → transcribe เป็นข้อความ
+      ↓
+4. สร้าง metadata.csv (LJSpeech format)
+      ↓
+5. Train LoRA (60-360 steps)
+      ↓
+6. Inference → สร้างเสียงจาก text
+```
+
+---
+
+## 🖥️ GUI Tabs
+
+| Tab | หน้าที่ |
+|-----|---------|
+| **1. บันทึก & สร้าง Dataset** | Record/Upload → ตัด → STT → metadata.csv |
+| **2. Train Model** | Fine-tune LoRA ด้วย config ที่กำหนด |
+| **3. Inference** | Text-to-Speech ด้วยโมเดลที่เทรน |
+
+---
+
+## ⚙️ Configuration
+
+แก้ไขได้ใน `config.py`:
+
+```python
+# Model
+model_name = "unsloth/orpheus-3b-0.1-ft"  # หรือ custom model
+max_seq_length = 2048
+r = 64                    # LoRA rank
+
+# Training
+max_steps = 360           # จำนวน training steps
+learning_rate = 2e-4
+```
+
+---
+
+## 📁 Output Structure
+
+```
+dataset/
+├── metadata.csv         # wavs/xxx.wav|ข้อความ
+└── wavs/
+    ├── audio_001.wav
+    └── audio_002.wav
+
+outputs/
+└── checkpoint-360/      # LoRA weights
+```
+
+---
+
+## 🔧 Requirements
+
+- **GPU:** NVIDIA with CUDA (T4, V100, A100, RTX)
+- **VRAM:** 16GB+ recommended
+- **Python:** 3.10+
+- **FFmpeg:** สำหรับ audio processing
+
+```bash
+# Windows
+choco install ffmpeg
+
+# Linux
+sudo apt install ffmpeg
+```
+
+---
+
+## 📚 Files
+
+| File | Description |
+|------|-------------|
+| `app_gui.py` | Main Gradio GUI |
+| `audio_processor.py` | ตัด audio, ลบเสียงเงียบ |
+| `typhoon_stt.py` | Typhoon ASR API |
+| `dataset_prep.py` | เตรียม dataset สำหรับ train |
+| `train.py` | Training script |
+| `inference.py` | Text-to-Speech inference |
+| `config.py` | Model & training config |
+
+---
+
+## 🙏 Credits
+
+- [Unsloth](https://github.com/unslothai/unsloth) - Fast LoRA fine-tuning
+- [Orpheus-3B](https://huggingface.co/canopylabs/orpheus-3b) - Base TTS model
+- [SNAC](https://github.com/hubertsiuzdak/snac) - Audio codec
+- [Typhoon](https://opentyphoon.ai) - Thai ASR API
+
+---
+
+## 📄 License
+
+MIT License
