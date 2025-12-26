@@ -3,7 +3,7 @@ import torch
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "Pakorn2112/model-base",
+    model_name = "Pakorn2112/voice-clone-orpheus-base",
     max_seq_length= 2048, # Choose any for long context!
     dtype = None, # Select None for auto detection
     load_in_4bit = False, # Select True for 4bit which reduces memory usage
