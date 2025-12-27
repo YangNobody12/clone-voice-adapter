@@ -279,7 +279,7 @@ with gr.Blocks(title="Clone Voice Adapter Studio", theme=gr.themes.Soft()) as de
             )
             
             with gr.Row():
-                train_steps = gr.Number(label="Max Steps", value=300)
+                train_steps = gr.Number(label="Max Steps", value=600)
                 train_lr = gr.Number(label="Learning Rate", value=2e-4)
             
             train_btn = gr.Button("🚀 Start Training", variant="primary")

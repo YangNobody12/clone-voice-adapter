@@ -3,7 +3,7 @@ from typing import List, Optional
 
 @dataclass
 class ModelConfig:
-    model_name: str = "akorn2112/voice-clone-orpheus-base"
+    model_name: str = "Pakorn2112/voice-clone-orpheus-base"
     max_seq_length: int = 2048
     load_in_4bit: bool = False
     
