@@ -11,3 +11,4 @@ venv/
 wavs/
 output_history/
 PLAN.md
+model.py
